@@ -1,122 +1,145 @@
 package programs;
-
 import com.battle.heroes.army.Unit;
 import com.battle.heroes.army.programs.Edge;
+import com.battle.heroes.army.programs.EdgeDistance;
 import com.battle.heroes.army.programs.UnitTargetPathFinder;
-
 import java.util.*;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 public class UnitTargetPathFinderImpl implements UnitTargetPathFinder {
-
     // поле боя и игровые константы
     private static final int FIELD_WIDTH = 27;
     private static final int FIELD_HEIGHT = 21;
-    // шаг любого юнита в одну из 4х сторон поля
-    private static final int[][] STEPS = {
-            new int[] {0,1}, new int[] {1,0},
-            new int[] {0,-1}, new int[]{-1,0}
-    };
+
+    // Возможные направления движения (4 направления: вертикаль, горизонталь)
+    private static final int[][] STEPS = new int[][]{{-1, 0}, {1, 0}, {0, -1}, {0, 1}};
+
+    // Используем INFINITY для обозначения недостижимых ячеек
+    private static final int INFINITY = Integer.MAX_VALUE - 1;
 
     @Override
     public List<Edge> getTargetPath(Unit attackUnit, Unit targetUnit, List<Unit> existingUnitList) {
+        // инициализируем матрицу расстояний и посещений
+        int[][] distances = new int[FIELD_WIDTH][FIELD_HEIGHT];
+        boolean[][] visited = new boolean[FIELD_WIDTH][FIELD_HEIGHT];
 
-        // получаем начальную и конечную ячейки
-        Edge startCell = new Edge(attackUnit.getxCoordinate(), attackUnit.getyCoordinate());
-        Edge targetCell = new Edge(targetUnit.getxCoordinate(), targetUnit.getyCoordinate());
+        // инициализируем матрицу для хранения предыдущих координат в пути
+        int[] previous = new int[FIELD_WIDTH * FIELD_HEIGHT];
 
-        // если вдруг они совпали, возвращаем любую (или пустой?)
-        if (startCell.equals(targetCell)) {
-            return List.of(startCell);
+        // пока все расстояния равны бесконечности
+        for (int i = 0; i < FIELD_WIDTH; i++) {
+            Arrays.fill(distances[i], INFINITY);
         }
 
-        // инициализируем структуры для:
-            // координат ячеек с живыми юнитами
-        Set<Edge> blockedCells = getBlockedCells(existingUnitList);
-            // хранения минимальных расстояний до каждой ячейки
-        Map<Edge, Integer> shortestDistances = new HashMap<>();
-            // восстановления пути - указывает предшествующую клетку на пути
-        Map<Edge, Edge> trackingMap = new HashMap<>();
-            // целей обработки ячеек в порядке увеличения расстояния (а-ля, автоматическая сортировка)
-        PriorityQueue<Edge> priorityQueue = new PriorityQueue<>(Comparator.comparingInt(shortestDistances::get));
+        // начальные координаты
+        // ячейка атакующего юнита
+        int startX = attackUnit.getxCoordinate();
+        int startY = attackUnit.getyCoordinate();
 
-        // инициализируем начальную ячейку
-        shortestDistances.put(startCell, 0);
-        priorityQueue.add(startCell);
+        // ячейка целевого юнита
+        int targetX = targetUnit.getxCoordinate();
+        int targetY = targetUnit.getyCoordinate();
 
-        // алгоритм Дейкстры в действии. Сложность:
-        // S = FIELD_WIDTH * FIELD_HEIGHT - площадь поля, E - ребро узла (по 4 у ячейки)
-        // O(V * log V + 4 * E) => O(V * log V)
-        while (!priorityQueue.isEmpty()) {
-            Edge currentCell = priorityQueue.poll(); // идем виртуально на ближайшую ячейку
+        // отмечаем начальный путь
+        distances[startX][startY] = 0;
 
-            // проверяем, если дошли - восстанавливаем и сразу возвращаем путь
-            if (currentCell.equals(targetCell)) {
-                return restorePath(trackingMap, currentCell);
+        // очередь с приоритетом для выбора следующей "ближайшей" ячейки
+        PriorityQueue<EdgeDistance> priorityQueue = new PriorityQueue<>(Comparator.comparingInt(EdgeDistance::getDistance));
+        priorityQueue.add(new EdgeDistance(startX, startY, 0)); // O(log n) для вставки
+
+        // сохраняем занятые ячейки, чтобы их пропускать при поиске пути
+        Set<Integer> occupiedCells = new HashSet<>();
+        for (Unit unit : existingUnitList) {
+            if (unit != attackUnit && unit != targetUnit && unit.isAlive()) {
+                int cellId = unit.getxCoordinate() * FIELD_HEIGHT + unit.getyCoordinate();
+                occupiedCells.add(cellId); // O(1) для добавления в HashSet
+            }
+        }
+
+        // Алгоритм Дейкстры - ищем кратчайший путь
+        while (!priorityQueue.isEmpty()) { // O(n log n), где n - общее количество ячеек на поле
+            // берем из очереди ближайшую ячейку
+            EdgeDistance current = priorityQueue.poll(); // O(log n) для извлечения минимума
+
+            int currentX = current.getX();
+            int currentY = current.getY();
+            int currentIndex = currentX * FIELD_HEIGHT + currentY;
+
+            // если текущая ячейка уже посещена - пропускаем
+            if (visited[currentX][currentY]) {
+                continue;
             }
 
-            // оглядываемся вокруг
-            for (Edge nextCell : getCellsAround(currentCell, trackingMap.get(currentCell))) {
-                // если занята - пропускаем
-                if (blockedCells.contains(nextCell)) {
-                    continue;
-                }
+            // отмечаем посещённую ячейку
+            visited[currentX][currentY] = true;
 
-                // берем значение длины дистанции до текущей ячейки + 1 следующая
-                // или (условно) бесконечность, если сохраненого значения дистанции нет
-                int distanceToNext = shortestDistances.getOrDefault(currentCell, Integer.MAX_VALUE - 1) + 1;  // -1 - чтобы не было ошибки
-                // Если нашли более короткий путь к соседу, обновляем данные
-                if (distanceToNext < shortestDistances.getOrDefault(nextCell, Integer.MAX_VALUE)) {
-                    shortestDistances.put(nextCell, distanceToNext);
-                    trackingMap.put(nextCell, currentCell);
-                    priorityQueue.add(nextCell);
+            // проверяем, может это искомая
+            if (currentX == targetX && currentY == targetY) {
+                break;
+            }
+
+            // оглядываемся по всем 4м сторонам
+            for (int[] direction : STEPS) {
+                int newX = currentX + direction[0];
+                int newY = currentY + direction[1];
+                int newIndex = newX * FIELD_HEIGHT + newY;
+
+                // проверяем, что ячейка доступна
+                if (isAvailable(newX, newY, occupiedCells)) {
+                    int newDistance = distances[currentX][currentY] + 1;
+
+                    // если новый путь короче, обновляем расстояние и предыдущую ячейку
+                    if (newDistance < distances[newX][newY]) {
+                        distances[newX][newY] = newDistance;
+                        previous[newIndex] = currentIndex;
+                        priorityQueue.add(new EdgeDistance(newX, newY, newDistance)); // O(log n) для вставки
+                    }
                 }
             }
         }
-        // нет ходов
-        return List.of();
+
+        // если путь не найден, возвращаем пустой список
+        if (distances[targetX][targetY] == INFINITY) {
+            return List.of();
+        }
+
+        // если найден - восстанавливаем путь от целевой ячейки до начальной - O(n)
+        return restorePath(previous, startX, startY, targetX, targetY);
     }
 
-    // метод фильтрует существующих на поле юнитов и извлекает в набор координаты живых
-    private Set<Edge> getBlockedCells(List<Unit> existingUnitList) {
-        return existingUnitList.stream()
-                .filter(Unit::isAlive)
-                .map(unit -> new Edge(unit.getxCoordinate(), unit.getyCoordinate()))
-                .collect(Collectors.toSet());
-    }
+    // метод проверки доступности ячейки
+    private boolean isAvailable(int x, int y, Set<Integer> occupiedCells) {
+        // проверка границ поля
+        if (x < 0 || x >= FIELD_WIDTH || y < 0 || y >= FIELD_HEIGHT) {
+            return false;
+        }
 
-    // получаем все соседние ячейки, с учетом размера поля и исключаем ту, с которой мы пришли
-    private List<Edge> getCellsAround(Edge currentCell, Edge fromCell) {
-        int x = currentCell.getX();
-        int y = currentCell.getY();
-        return Stream.of(STEPS)
-                .map(step -> new Edge(x + step[0], y + step[1]))
-                .filter(nextCell -> nextCell.getX() >= 0 && nextCell.getX() < FIELD_WIDTH &&
-                        nextCell.getY() >= 0 && nextCell.getY() < FIELD_HEIGHT &&
-                        !nextCell.equals(fromCell))
-                .toList();
+        // проверка занятости ячейки другими юнитами
+        int cellId = x * FIELD_HEIGHT + y;
+        return !occupiedCells.contains(cellId); // O(1) для проверки в HashSet
     }
 
     // метод восстановления пути
-    private List<Edge> restorePath(Map<Edge, Edge> trackingMap, Edge currentCell) {
-        LinkedList<Edge> shortestWay = new LinkedList<>();
-        // проходим от начальной точки по всем записанным в trackingMap значениям
-        while (trackingMap.containsKey(currentCell)) {
-            // ближайшую найденную всегда ставим в начало восстановленного пути
-            shortestWay.addFirst(currentCell);
-            // переходим к предыдущей ближайшей ячейке
-            currentCell = trackingMap.get(currentCell);
+    private List<Edge> restorePath(int[] previous, int startX, int startY, int targetX, int targetY) {
+        LinkedList<Edge> path = new LinkedList<>();
+        int x = targetX;
+        int y = targetY;
+
+        while (x != startX || y != startY) {
+            path.addFirst(new Edge(x, y));
+            int currentIndex = x * FIELD_HEIGHT + y;
+            int prevIndex = previous[currentIndex];
+            x = prevIndex / FIELD_HEIGHT;
+            y = prevIndex % FIELD_HEIGHT;
         }
-        // если других ближайших больше не найдено, добавляем последнюю найденную опять в начало пути
-        shortestWay.addFirst(currentCell);
-        return shortestWay;
+
+        path.addFirst(new Edge(startX, startY));
+        return path;
     }
 }
 
-// Общая сложность:
-// Инициализация : O(1)
-// Вызов getBlockedCells(existingUnitList) : O(u)
+// Суммарная сложность:
+// матрица расстояний и посещений: O(S)
+// список занятых ячеек: O(u), где m - количество существующих юнитов
 // Алгоритм Дейкстры : O(S * log S)
 // Восстановление пути : O(S)
 // Таким образом, общая временная сложность метода getTargetPath будет:

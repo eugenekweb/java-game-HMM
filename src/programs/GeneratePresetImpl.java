@@ -94,7 +94,6 @@ public class GeneratePresetImpl implements GeneratePreset {
             }
         }
 
-
         // создаем и передаем далее объект армии компьютера
         Army enemyArmy = new Army();
         enemyArmy.setUnits(generatedArmy);

@@ -26,12 +26,13 @@ public class SuitableForAttackUnitsFinderImpl implements SuitableForAttackUnitsF
         int rowToCheckIndex = isLeftArmyTarget ? FIELD_MAX_LAYERS - 1 : 0;
         int nextRowStep = isLeftArmyTarget ? -1 : 1;
 
-        // в одном ряду у всех унитов одинаковая координата Х, естественно
+        // в одном ряду у всех унитов одинаковая координата Х
         // собираем для каждого ряда "маску" координат по Y - это и будет координата блокирующего впереди юнита
         Set<Integer> blockList = new HashSet<>(); // для первого ряда - маска пуста
 
         // сложность цикла = О(3)
-        for (int i = 1; i < FIELD_MAX_LAYERS; i++) {
+        for (int i = 0; i < FIELD_MAX_LAYERS; i++, rowToCheckIndex += nextRowStep) {
+            if (unitsByRow.get(rowToCheckIndex).isEmpty()) continue;
             Set<Integer> currentBlockList = new HashSet<>(blockList);
             // фильтруем подходящие юниты: живые и незаблокированные со стороны противника в текущем ряду
             List<Unit> currentRow = unitsByRow.get(rowToCheckIndex).stream()
@@ -41,11 +42,10 @@ public class SuitableForAttackUnitsFinderImpl implements SuitableForAttackUnitsF
             suitableUnits.addAll(currentRow);
 
             // на основании текущего ряда делаем "маску" для следующего ряда (собираем координаты Y)
-            blockList = currentRow.stream() // TODO: не обнулять?
+            blockList = currentRow.stream()
                     .map(Unit::getyCoordinate).collect(Collectors.toSet());
-            rowToCheckIndex += nextRowStep; // переходим к следующему ряду
-        }
 
+        }
         return suitableUnits;
     }
 }
