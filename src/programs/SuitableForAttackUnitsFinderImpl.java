@@ -41,7 +41,7 @@ public class SuitableForAttackUnitsFinderImpl implements SuitableForAttackUnitsF
             suitableUnits.addAll(currentRow);
 
             // на основании текущего ряда делаем "маску" для следующего ряда (собираем координаты Y)
-            blockList = currentRow.stream()
+            blockList = currentRow.stream() // TODO: не обнулять?
                     .map(Unit::getyCoordinate).collect(Collectors.toSet());
             rowToCheckIndex += nextRowStep; // переходим к следующему ряду
         }

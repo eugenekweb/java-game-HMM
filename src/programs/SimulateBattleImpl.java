@@ -5,38 +5,73 @@ import com.battle.heroes.army.Unit;
 import com.battle.heroes.army.programs.PrintBattleLog;
 import com.battle.heroes.army.programs.SimulateBattle;
 
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.Set;
+import java.util.*;
 
 public class SimulateBattleImpl implements SimulateBattle {
-    private PrintBattleLog printBattleLog;
+    private PrintBattleLog printBattleLog; // Позволяет логировать. Использовать после каждой атаки юнита
 
-    //  Сложность: O(n * m). (n - количество юнитов в армии игрока, m - количество юнитов в армии компьютера)
     @Override
-    public void simulate(Army playerArmy, Army computerArmy) throws InterruptedException {
-        Set<Unit> playerUnits = new HashSet<>(playerArmy.getUnits());
-        Set<Unit> computerUnits = new HashSet<>(computerArmy.getUnits());
+    public void simulate(Army playerArmy, Army computerArmy) {
+        int round = 0;
 
-        while (!playerUnits.isEmpty() && !computerUnits.isEmpty()) {
-            executeAttacks(playerUnits, computerUnits);
-            executeAttacks(computerUnits, playerUnits);
+        while (true) {
+            // номер раунда
+            ++round;
+
+            List<Unit> currentPlayerArmy = getSurvivors(playerArmy);
+            List<Unit> currentPCArmy = getSurvivors(computerArmy);
+
+            if (currentPlayerArmy.isEmpty() || currentPCArmy.isEmpty()) {
+                break;
+            }
+
+            PriorityQueue<Unit> playerQueue = sortArmyByAttackQueue(currentPlayerArmy);
+            PriorityQueue<Unit> computerQueue = sortArmyByAttackQueue(currentPCArmy);
+
+            boolean isPlayerTurn = true;
+
+            while (!playerQueue.isEmpty() || !computerQueue.isEmpty()) {
+                makeTurn(playerQueue, currentPCArmy);
+                makeTurn(computerQueue, currentPlayerArmy);
+            }
+
+            System.out.println("Раунд " + round + " окончен");
+            System.out.println("У игрока осталось " + currentPlayerArmy.size() + " юнитов");
+            System.out.println("У ПК осталось " + currentPCArmy.size() + " юнитов");
+            System.out.println("--------------------------------------------------");
+            System.out.println();
+        }
+
+        System.out.println("Game over!");
+    }
+
+    private void makeTurn(PriorityQueue<Unit> queue, List<Unit> enemyArmy) {
+        if (queue.isEmpty()) {
+            return;
+        }
+        Unit attacker = queue.poll();
+        Unit target;
+        try {
+            target = attacker.getProgram().attack();
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
+
+        if (target != null && target.isAlive()) {
+            printBattleLog.printBattleLog(attacker, target);
+            if (!target.isAlive()) {
+                enemyArmy.remove(target);
+            }
         }
     }
 
-    private void executeAttacks(Set<Unit> attackingUnits, Set<Unit> defendingUnits) throws InterruptedException {
-        Iterator<Unit> iterator = attackingUnits.iterator();
-        while (iterator.hasNext()) {
-            Unit attackingUnit = iterator.next();
-            if (!attackingUnit.isAlive()) {
-                iterator.remove(); // Чистим от мертвецов
-                continue;
-            }
+    private PriorityQueue<Unit> sortArmyByAttackQueue(List<Unit> army) {
+        PriorityQueue<Unit> queue = new PriorityQueue<>(Comparator.comparingInt(Unit::getBaseAttack).reversed());
+        queue.addAll(army);
+        return queue;
+    }
 
-            Unit target = attackingUnit.getProgram().attack();
-            if (target != null) {
-                printBattleLog.printBattleLog(attackingUnit, target);
-            }
-        }
+    private List<Unit> getSurvivors(Army army) {
+        return army.getUnits().stream().filter(Unit::isAlive).toList();
     }
 }
